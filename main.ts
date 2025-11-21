@@ -72,7 +72,6 @@ async function process2DWinnings(winningNumber: string, session: "Morning" | "Ev
                 const user = await getUser(bet.username);
                 if (user) {
                     const payout = bet.amount * multiplier;
-                    // FIX: Ensure user balance is updated within the transaction check
                     atomic = atomic.set(["users", bet.username], { ...user, balance: user.balance + payout });
                 }
             }
@@ -208,7 +207,6 @@ ${Layout("Admin Panel", `
 `, user)}
 `;
 
-// 🔑 FINAL UI FIXES & BETTING FORM LOGIC ADDED
 const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
     let betHistoryHtml = ''; 
     if(bets.length === 0) { 
@@ -260,7 +258,7 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
 
                 <div class="grid grid-cols-2 gap-3">
                     <input name="number" id="betNumber" type="text" maxlength="2" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="00-99">
-                    <input name="amount" type="number" min="100" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Amount (Ks)">
+                    <input name="amount" id="betAmount" type="number" min="100" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Amount (Ks)">
                 </div>
                 <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl">Bet Now</button>
             </form>
@@ -295,9 +293,9 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
 
 
             if (type === 'double') {
-                numberInput.value = 'XX';
+                numberInput.value = '00'; // FIX: Set a default value, not placeholder
                 numberInput.disabled = true;
-                numberInput.placeholder = 'XX (Automatic)';
+                numberInput.placeholder = '00 (Auto)';
                 numberInput.maxLength = 2;
             } else if (type === 'head' || type === 'tail') {
                 numberInput.disabled = false;
@@ -324,28 +322,30 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
             btn.innerHTML = '<div class="loader-sm mx-auto"></div>';
             btn.disabled = true;
             
-            const formData = new FormData(e.target);
+            const numberInput = document.getElementById('betNumber');
+            const amountInput = document.getElementById('betAmount');
+            const typeInput = document.getElementById('betType');
+
             const data = {
-                number: formData.get('number'),
-                amount: Number(formData.get('amount')), // Ensure amount is number
-                betType: formData.get('betType')
+                number: numberInput.value,
+                amount: Number(amountInput.value),
+                betType: typeInput.value
             };
 
             // Client-side validation: Check min amount
-            if (data.amount < 100) {
-                 alert("Minimum bet is 100 Ks");
+            if (data.amount < 100 || isNaN(data.amount)) {
+                 alert("Invalid amount (Min 100 Ks)");
                  btn.innerText = originalText;
                  btn.disabled = false;
                  return;
             }
-
-
-            // Enhanced validation based on betType
+            
+            // FIX: Validate input based on type
             const num = data.number.trim();
             const type = data.betType;
             let isValid = false;
 
-            if (type === 'double' && num === 'XX') {
+            if (type === 'double' && num === '00') { // Check if double is set
                  isValid = true;
             } else if ((type === 'head' || type === 'tail') && /^\d{1}$/.test(num)) {
                  isValid = true;
@@ -354,11 +354,12 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
             }
             
             if (!isValid) {
-                alert("Invalid input for the selected bet type.");
+                alert("Invalid number input for the selected bet type.");
                 btn.innerText = originalText;
                 btn.disabled = false;
                 return;
             }
+
 
             fetch('/api/2d/bet', {
                 method: 'POST',
@@ -372,7 +373,10 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
                      window.location.reload();
                 }
             })
-            .catch(() => alert("Connection Error"))
+            .catch((e) => {
+                 console.error("Betting fetch error:", e);
+                 alert("Connection Error or Server problem.");
+            })
             .finally(() => {
                 btn.innerText = originalText;
                 btn.disabled = false;
@@ -388,8 +392,7 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
                 if (!res.ok) throw new Error('API down');
                 const data = await res.json();
                 
-                // If live result is available, use it. Otherwise, use mock data.
-                if (data.live && data.live.twod && data.live.twod !== '--') {
+                if (data.live && data.live.twod && data.live.twod !== '--' && data.live.twod.length === 2) {
                      liveApiData = { 
                         twod: data.live.twod, 
                         time: data.live.time,
@@ -639,6 +642,7 @@ app.post("/api/2d/bet", async (c) => {
     let numbersToBet: string[] = [];
     
     if (betType === 'double') {
+        // FIX: Double type doesn't use input number, always bet 00-99 doubles
         for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`); 
     } else if (betType === 'head') {
         if(!/^\d{1}$/.test(number)) return c.json({ success: false, message: "Invalid input for Head (0-9)." }, 400);
@@ -688,7 +692,7 @@ app.post("/api/2d/bet", async (c) => {
         await kv.set(["2d_bets", today, user.username, bet.id], bet);
     }
     
-    // 🔑 FIX: Update user object with new balance for display
+    // Fetch updated balance after transaction
     const updatedUser = await getUser(user.username);
     const newBalance = updatedUser ? updatedUser.balance : user.balance - totalCost;
 
