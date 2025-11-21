@@ -72,6 +72,7 @@ async function process2DWinnings(winningNumber: string, session: "Morning" | "Ev
                 const user = await getUser(bet.username);
                 if (user) {
                     const payout = bet.amount * multiplier;
+                    // FIX: Ensure user balance is updated within the transaction check
                     atomic = atomic.set(["users", bet.username], { ...user, balance: user.balance + payout });
                 }
             }
@@ -217,7 +218,7 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
             let statusColor = 'text-yellow-400'; 
             if(b.status === 'win') statusColor = 'text-green-400'; 
             if(b.status === 'lose') statusColor = 'text-red-400'; 
-            betHistoryHtml += `<div class="flex justify-between items-center p-3 border-b border-slate-700 last:border-0"><div class="text-xs text-slate-400">${b.session} <br> ${new Date(b.timestamp).toLocaleTimeString("en-US", { timeZone: "Asia/Yangon" })}</div><div class="font-bold text-white text-lg">${b.number}</div><div class="text-right"><div class="text-green-400 text-sm">${b.amount} Ks</div><div class="text-[10px] uppercase ${statusColor}">${b.status}</div></div></div>`; 
+            betHistoryHtml += `<div class="flex justify-between items-center p-3 border-b border-slate-700 last:border-0"><div class="text-xs text-slate-400">${b.session} <br> ${new Date(b.timestamp).toLocaleTimeString("en-US", { timeZone: "Asia/Yangon" })}</div><div class="font-bold text-white text-lg">${b.number}</div><div class="text-right"><div class="text-green-400 text-sm">${b.amount.toLocaleString()} Ks</div><div class="text-[10px] uppercase ${statusColor}">${b.status}</div></div></div>`; 
         }); 
     } 
 
@@ -247,11 +248,11 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
             <form onsubmit="return handle2DBet(event)" id="betForm" class="space-y-4">
                 
                 <div class="grid grid-cols-3 gap-2">
-                    <button type="button" onclick="selectBetType('direct', 'ရိုးရိုး')" id="btn-direct" class="bet-type-btn bg-blue-600/50 hover:bg-blue-600 text-white text-xs font-bold py-3 rounded-lg border border-blue-500">ရိုးရိုး</button>
-                    <button type="button" onclick="selectBetType('r', 'R')" id="btn-r" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">R</button>
-                    <button type="button" onclick="selectBetType('double', 'အပူး')" id="btn-double" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">အပူး</button>
-                    <button type="button" onclick="selectBetType('head', 'ထိပ်စီး')" id="btn-head" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">ထိပ်စီး</button>
-                    <button type="button" onclick="selectBetType('tail', 'နောက်ပိတ်')" id="btn-tail" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">နောက်ပိတ်</button>
+                    <button type="button" onclick="selectBetType('direct', 'ရိုးရိုး', this)" data-type="direct" class="bet-type-btn bg-blue-600/50 hover:bg-blue-600 text-white text-xs font-bold py-3 rounded-lg border border-blue-500">ရိုးရိုး</button>
+                    <button type="button" onclick="selectBetType('r', 'R', this)" data-type="r" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">R</button>
+                    <button type="button" onclick="selectBetType('double', 'အပူး', this)" data-type="double" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">အပူး</button>
+                    <button type="button" onclick="selectBetType('head', 'ထိပ်စီး', this)" data-type="head" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">ထိပ်စီး</button>
+                    <button type="button" onclick="selectBetType('tail', 'နောက်ပိတ်', this)" data-type="tail" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">နောက်ပိတ်</button>
                     <input type="hidden" name="betType" id="betType" value="direct">
                 </div>
 
@@ -277,7 +278,8 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
     </div>
 
     <script>
-        function selectBetType(type, description) {
+        // 2D Betting Type Selector
+        function selectBetType(type, description, el) {
             document.getElementById('betType').value = type;
             document.getElementById('betDescription').innerText = 'Bet Type: ' + description;
             
@@ -288,8 +290,8 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
                 btn.classList.remove('bg-blue-600/50', 'border-blue-500');
                 btn.classList.add('bg-slate-700', 'border-slate-600');
             });
-            document.getElementById('btn-' + type).classList.remove('bg-slate-700', 'border-slate-600');
-            document.getElementById('btn-' + type).classList.add('bg-blue-600/50', 'border-blue-500');
+            el.classList.remove('bg-slate-700', 'border-slate-600');
+            el.classList.add('bg-blue-600/50', 'border-blue-500');
 
 
             if (type === 'double') {
@@ -325,9 +327,18 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
             const formData = new FormData(e.target);
             const data = {
                 number: formData.get('number'),
-                amount: formData.get('amount'),
+                amount: Number(formData.get('amount')), // Ensure amount is number
                 betType: formData.get('betType')
             };
+
+            // Client-side validation: Check min amount
+            if (data.amount < 100) {
+                 alert("Minimum bet is 100 Ks");
+                 btn.innerText = originalText;
+                 btn.disabled = false;
+                 return;
+            }
+
 
             // Enhanced validation based on betType
             const num = data.number.trim();
@@ -335,7 +346,7 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
             let isValid = false;
 
             if (type === 'double' && num === 'XX') {
-                 isValid = true; // Handled by server logic
+                 isValid = true;
             } else if ((type === 'head' || type === 'tail') && /^\d{1}$/.test(num)) {
                  isValid = true;
             } else if ((type === 'direct' || type === 'r') && /^\d{2}$/.test(num)) {
@@ -372,12 +383,26 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
         let liveApiData = null;
         async function fetchLiveResult() {
             try {
+                // Fetch from official API
                 const res = await fetch('https://api.thaistock2d.com/live');
+                if (!res.ok) throw new Error('API down');
                 const data = await res.json();
-                liveApiData = data.live || { twod: "--", time: "--:--:--" };
+                
+                // If live result is available, use it. Otherwise, use mock data.
+                if (data.live && data.live.twod && data.live.twod !== '--') {
+                     liveApiData = { 
+                        twod: data.live.twod, 
+                        time: data.live.time,
+                        status: 'OPEN'
+                    };
+                } else {
+                    // Check if market is closed (Mock closed state if not live)
+                    liveApiData = { twod: "--", time: new Date().toLocaleTimeString(), status: 'CLOSED' };
+                }
                 
             } catch (e) {
-                liveApiData = { twod: "API Error", time: "--:--:--" };
+                // API Fetch Failed (Treat as closed)
+                liveApiData = { twod: "--", time: new Date().toLocaleTimeString(), status: 'CLOSED' };
             }
         }
 
@@ -389,9 +414,9 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
                 const twod = liveApiData.twod || "--";
                 liveTimeEl.innerText = liveApiData.time;
                 
-                if (twod === "--" || twod === "API Error" || twod === "Closed") {
-                    // Show blinking effect if result is pending
-                    liveNumEl.innerText = "--";
+                if (twod === "--" || liveApiData.status === 'CLOSED') {
+                    // Show blinking effect if result is pending/closed
+                    liveNumEl.innerText = twod;
                     liveNumEl.classList.add('blinking');
                 } else {
                     // Show result if available and remove blinking
@@ -412,7 +437,7 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
             setInterval(updateLiveDisplay, 2000); // Update display (blinking) every 2 seconds
             
             // Set initial type for the form
-            selectBetType('direct', 'ရိုးရိုး'); 
+            selectBetType('direct', 'ရိုးရိုး', document.querySelector('[data-type="direct"]')); 
         });
     </script>
 `, user);
@@ -597,11 +622,8 @@ app.post("/api/2d/bet", async (c) => {
     if (isNaN(amount) || amount < 100) {
         return c.json({ success: false, message: "Invalid amount (Min 100 Ks)." }, 400);
     }
-    if (user.balance < amount) {
-        return c.json({ success: false, message: "Insufficient Balance." }, 400);
-    }
-
-    // Determine session (Simplified logic)
+    
+    // --- Determine session ---
     const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
     const dateObj = new Date(now);
     const hour = dateObj.getHours();
@@ -615,7 +637,6 @@ app.post("/api/2d/bet", async (c) => {
     
     // --- Bet Type Logic ---
     let numbersToBet: string[] = [];
-    let isSingleBet = false;
     
     if (betType === 'double') {
         for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`); 
@@ -664,11 +685,15 @@ app.post("/api/2d/bet", async (c) => {
             status: "pending", 
             timestamp: Date.now()
         };
-        // Save each bet separately
         await kv.set(["2d_bets", today, user.username, bet.id], bet);
     }
+    
+    // 🔑 FIX: Update user object with new balance for display
+    const updatedUser = await getUser(user.username);
+    const newBalance = updatedUser ? updatedUser.balance : user.balance - totalCost;
 
-    return c.json({ success: true, message: `Successfully placed ${numbersToBet.length} bets totaling ${totalCost.toLocaleString()} Ks.` });
+
+    return c.json({ success: true, message: `Successfully placed ${numbersToBet.length} bets totaling ${totalCost.toLocaleString()} Ks.`, newBalance });
 });
 
 
@@ -676,6 +701,7 @@ app.post("/api/2d/bet", async (c) => {
 app.get("/history", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
+    // Placeholder - redirecting to 2D for simplified view
     return c.redirect("/2d");
 });
 
