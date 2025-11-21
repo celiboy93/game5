@@ -6,34 +6,12 @@ import { getCookie, setCookie, deleteCookie as honoDeleteCookie } from "https://
 // 1. DATABASE & TYPES (Deno KV)
 // =========================================================================
 
-// --- Types ---
-interface User {
-    username: string;
-    passwordHash: string;
-    balance: number;
-    isAdmin: boolean;
-    createdAt: number;
-}
-
-interface TwoDBet { 
-    id: string; 
-    username: string; 
-    number: string; 
-    amount: number; 
-    date: string; 
-    session: "Morning" | "Evening"; 
-    status: "pending" | "win" | "lose"; 
-    timestamp: number; 
-}
-
+interface User { username: string; passwordHash: string; balance: number; isAdmin: boolean; createdAt: number; }
+interface TwoDBet { id: string; username: string; number: string; amount: number; date: string; session: "Morning" | "Evening"; status: "pending" | "win" | "lose"; timestamp: number; }
 interface TwoDResult { date: string; time: string; twod: string; session: "Morning" | "Evening"; }
 
-// --- KV Initialization ---
 const kv = await Deno.openKv();
 
-// --- DB Functions ---
-
-// Password Hashing (SHA-256 - Deno Native)
 async function hashPassword(password: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(password + "2d-salt-2025");
@@ -51,7 +29,6 @@ async function saveUser(user: User): Promise<void> {
     await kv.set(["users", user.username], user);
 }
 
-// Session Management
 async function createSession(username: string, maxAgeSeconds: number = 86400): Promise<string> {
     const sessionId = crypto.randomUUID();
     await kv.set(["sessions", sessionId], username, { expireIn: maxAgeSeconds * 1000 });
@@ -67,15 +44,9 @@ async function deleteSession(sessionId: string): Promise<void> {
     await kv.delete(["sessions", sessionId]);
 }
 
-// 2D Results
 async function saveResult(date: string, session: "Morning" | "Evening", twod: string, time: string): Promise<void> {
     const result: TwoDResult = { date, session, twod, time };
     await kv.set(["results", date, session], result);
-}
-
-async function getResult(date: string, session: "Morning" | "Evening"): Promise<TwoDResult | null> {
-    const res = await kv.get<TwoDResult>(["results", date, session]);
-    return res.value;
 }
 
 async function getRecentResults(limit: number = 10): Promise<TwoDResult[]> {
@@ -106,7 +77,6 @@ async function process2DWinnings(winningNumber: string, session: "Morning" | "Ev
             }
             const res = await atomic.commit();
             if (res.ok && isWin) {
-                // Simplified history logging for new app
                 winCount++;
             }
         }
@@ -133,6 +103,9 @@ const Layout = (title: string, content: string, user?: User) => `
         .loader-sm { border: 3px solid rgba(255, 255, 255, 0.3); width: 24px; height: 24px; border-radius: 50%; border-left-color: #ffffff; animation: spin 0.8s linear infinite; } 
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .bottom-nav-container { background: #0f172a; border-top: 1px solid #334155; box-shadow: 0 -4px 20px rgba(0,0,0,0.4); }
+        /* Blinking effect for live number */
+        .blinking { animation: blink-animation 1s steps(5, start) infinite; }
+        @keyframes blink-animation { to { visibility: hidden; } }
     </style>
 </head>
 <body class="min-h-screen flex flex-col relative pb-24">
@@ -164,7 +137,6 @@ const Layout = (title: string, content: string, user?: User) => `
 </html>
 `;
 
-// 🔑 FIX: AuthForm HTML structure ensured to be complete and safely closed
 const AuthForm = (type: "login" | "register", error?: string) => `
 <div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10 border border-slate-600">
     <h2 class="text-3xl font-bold text-center mb-6 text-white uppercase">${type}</h2>
@@ -184,7 +156,7 @@ const AuthForm = (type: "login" | "register", error?: string) => `
         ${type === 'login' ? 'No account? <a href="/register" class="text-blue-400">Register</a>' : 'Have an account? <a href="/login" class="text-blue-400">Login</a>'}
     </p>
 </div>
-`; // FINAL CLOSING BACKTICK
+`;
 
 const AdminPanel = (user: User, topUpMessage?: string) => `
 ${Layout("Admin Panel", `
@@ -235,6 +207,7 @@ ${Layout("Admin Panel", `
 `, user)}
 `;
 
+// 🔑 FINAL UI FIXES & BETTING FORM LOGIC ADDED
 const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
     let betHistoryHtml = ''; 
     if(bets.length === 0) { 
@@ -265,16 +238,28 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
     <div class="max-w-md mx-auto space-y-6">
         <div class="glass p-6 rounded-2xl border border-yellow-500/30 text-center">
             <h2 class="text-lg font-bold text-slate-300 uppercase mb-2">Live Result (Mock)</h2>
-            <div class="text-8xl font-black text-yellow-400 drop-shadow-xl mb-4" id="live-2d-num">--</div>
+            <div class="text-8xl font-black text-yellow-400 drop-shadow-xl mb-4 blinking" id="live-2d-num">--</div>
             <div class="text-sm text-slate-500 font-mono">Updated: <span id="live-time">--:--:--</span></div>
         </div>
 
         <div class="glass p-6 rounded-2xl border border-blue-500/30">
             <h3 class="text-lg font-bold text-white mb-4">🎰 Place Bet</h3>
-            <form onsubmit="return handle2DBet(event)" class="space-y-3">
-                <div class="flex gap-3">
-                    <input name="number" type="text" maxlength="2" required class="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold" placeholder="00-99">
-                    <input name="amount" type="number" min="100" required class="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold" placeholder="Amount (Ks)">
+            <form onsubmit="return handle2DBet(event)" id="betForm" class="space-y-4">
+                
+                <div class="grid grid-cols-3 gap-2">
+                    <button type="button" onclick="selectBetType('direct', 'ရိုးရိုး')" id="btn-direct" class="bet-type-btn bg-blue-600/50 hover:bg-blue-600 text-white text-xs font-bold py-3 rounded-lg border border-blue-500">ရိုးရိုး</button>
+                    <button type="button" onclick="selectBetType('r', 'R')" id="btn-r" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">R</button>
+                    <button type="button" onclick="selectBetType('double', 'အပူး')" id="btn-double" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">အပူး</button>
+                    <button type="button" onclick="selectBetType('head', 'ထိပ်စီး')" id="btn-head" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">ထိပ်စီး</button>
+                    <button type="button" onclick="selectBetType('tail', 'နောက်ပိတ်')" id="btn-tail" class="bet-type-btn bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold py-3 rounded-lg border border-slate-600">နောက်ပိတ်</button>
+                    <input type="hidden" name="betType" id="betType" value="direct">
+                </div>
+
+                <p id="betDescription" class="text-sm text-yellow-400 text-center font-medium">Bet Type: ရိုးရိုး (Direct 00-99)</p>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <input name="number" id="betNumber" type="text" maxlength="2" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="00-99">
+                    <input name="amount" type="number" min="100" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Amount (Ks)">
                 </div>
                 <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl">Bet Now</button>
             </form>
@@ -292,19 +277,73 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
     </div>
 
     <script>
+        function selectBetType(type, description) {
+            document.getElementById('betType').value = type;
+            document.getElementById('betDescription').innerText = 'Bet Type: ' + description;
+            
+            const numberInput = document.getElementById('betNumber');
+            
+            // Reset button styles
+            document.querySelectorAll('.bet-type-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-600/50', 'border-blue-500');
+                btn.classList.add('bg-slate-700', 'border-slate-600');
+            });
+            document.getElementById('btn-' + type).classList.remove('bg-slate-700', 'border-slate-600');
+            document.getElementById('btn-' + type).classList.add('bg-blue-600/50', 'border-blue-500');
+
+
+            if (type === 'double') {
+                numberInput.value = 'XX';
+                numberInput.disabled = true;
+                numberInput.placeholder = 'XX (Automatic)';
+                numberInput.maxLength = 2;
+            } else if (type === 'head' || type === 'tail') {
+                numberInput.disabled = false;
+                numberInput.value = '';
+                numberInput.placeholder = '0-9 (One Digit)';
+                numberInput.maxLength = 1;
+            } else if (type === 'r') {
+                 numberInput.disabled = false;
+                 numberInput.value = '';
+                 numberInput.placeholder = '00-99 (Reverse Allowed)';
+                 numberInput.maxLength = 2;
+            } else { // direct
+                numberInput.disabled = false;
+                numberInput.value = '';
+                numberInput.placeholder = '00-99 (Direct)';
+                numberInput.maxLength = 2;
+            }
+        }
+
         function handle2DBet(e) {
             e.preventDefault();
             const btn = e.target.querySelector('button');
             const originalText = btn.innerText;
             btn.innerHTML = '<div class="loader-sm mx-auto"></div>';
             btn.disabled = true;
+            
             const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData.entries());
+            const data = {
+                number: formData.get('number'),
+                amount: formData.get('amount'),
+                betType: formData.get('betType')
+            };
 
-            // Simple validation
+            // Enhanced validation based on betType
             const num = data.number.trim();
-            if (num.length !== 2 || isNaN(num)) {
-                alert("Invalid 2D number format (must be 00-99)");
+            const type = data.betType;
+            let isValid = false;
+
+            if (type === 'double' && num === 'XX') {
+                 isValid = true; // Handled by server logic
+            } else if ((type === 'head' || type === 'tail') && /^\d{1}$/.test(num)) {
+                 isValid = true;
+            } else if ((type === 'direct' || type === 'r') && /^\d{2}$/.test(num)) {
+                 isValid = true;
+            }
+            
+            if (!isValid) {
+                alert("Invalid input for the selected bet type.");
                 btn.innerText = originalText;
                 btn.disabled = false;
                 return;
@@ -329,18 +368,51 @@ const TwoDPage = (user: User, bets: TwoDBet[], recentResults: TwoDResult[]) => {
             });
         }
         
-        document.addEventListener("DOMContentLoaded", () => {
-            // Mock Live Update (Replace with WebSocket if needed)
-            const liveNum = document.getElementById('live-2d-num'); 
-            const liveTime = document.getElementById('live-time');
-            if(liveNum) { 
-                setInterval(() => { 
-                    const now = new Date();
-                    const twod = (Math.floor(Math.random() * 99) + 1).toString().padStart(2, '0');
-                    liveNum.innerText = twod;
-                    liveTime.innerText = now.toLocaleTimeString();
-                }, 10000); // Updates every 10 seconds (Mock)
+        // Live Update Function (2-second interval, Blinking)
+        let liveApiData = null;
+        async function fetchLiveResult() {
+            try {
+                const res = await fetch('https://api.thaistock2d.com/live');
+                const data = await res.json();
+                liveApiData = data.live || { twod: "--", time: "--:--:--" };
+                
+            } catch (e) {
+                liveApiData = { twod: "API Error", time: "--:--:--" };
             }
+        }
+
+        function updateLiveDisplay() {
+            const liveNumEl = document.getElementById('live-2d-num'); 
+            const liveTimeEl = document.getElementById('live-time');
+            
+            if (liveApiData) {
+                const twod = liveApiData.twod || "--";
+                liveTimeEl.innerText = liveApiData.time;
+                
+                if (twod === "--" || twod === "API Error" || twod === "Closed") {
+                    // Show blinking effect if result is pending
+                    liveNumEl.innerText = "--";
+                    liveNumEl.classList.add('blinking');
+                } else {
+                    // Show result if available and remove blinking
+                    liveNumEl.innerText = twod;
+                    liveNumEl.classList.remove('blinking');
+                }
+            } else {
+                 liveNumEl.innerText = "--";
+                 liveTimeEl.innerText = "--:--:--";
+                 liveNumEl.classList.add('blinking');
+            }
+        }
+        
+        document.addEventListener("DOMContentLoaded", () => {
+            // Initial fetch and start intervals
+            fetchLiveResult().then(updateLiveDisplay);
+            setInterval(fetchLiveResult, 10000); // Fetch new data every 10 seconds
+            setInterval(updateLiveDisplay, 2000); // Update display (blinking) every 2 seconds
+            
+            // Set initial type for the form
+            selectBetType('direct', 'ရိုးရိုး'); 
         });
     </script>
 `, user);
@@ -368,13 +440,9 @@ async function getSessionUser(c: any): Promise<User | null> {
 }
 
 
-// --- HOMEPAGE / ROOT ROUTE ---
-app.get("/", (c) => {
-    return c.redirect("/login");
-});
-
-
 // --- AUTH ROUTES ---
+app.get("/", (c) => c.redirect("/login"));
+
 app.get("/login", async (c) => {
     const user = await getSessionUser(c);
     if(user) return c.redirect("/2d");
@@ -402,7 +470,7 @@ app.post("/register", async (c) => {
         username, 
         passwordHash, 
         balance: 0, 
-        isAdmin: isFirstUser, // First user is admin
+        isAdmin: isFirstUser, 
         createdAt: Date.now()
     };
     await saveUser(newUser);
@@ -493,10 +561,8 @@ app.post("/admin/result", async (c) => {
 
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
     
-    // 1. Save Result
     await saveResult(today, session, twod, time);
     
-    // 2. Process Payouts (Simplified - assuming a fixed 80x multiplier)
     const multiplier = 80;
     const count = await process2DWinnings(twod, session, multiplier);
 
@@ -511,12 +577,10 @@ app.get("/2d", async (c) => {
     
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
     
-    // Fetch user's bets for today
     const bets: TwoDBet[] = [];
     const betsIter = kv.list<TwoDBet>({ prefix: ["2d_bets", today, user.username] });
     for await (const entry of betsIter) bets.push(entry.value);
 
-    // Fetch recent results for history display
     const recentResults = await getRecentResults(10);
     
     return c.html(TwoDPage(user, bets.sort((a,b) => b.timestamp - a.timestamp), recentResults));
@@ -526,11 +590,12 @@ app.post("/api/2d/bet", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ success: false, message: "Unauthorized" }, 401);
     
-    const { number, amount: rawAmount } = await c.req.json();
+    const { number: rawNumber, amount: rawAmount, betType } = await c.req.json();
     const amount = Number(rawAmount);
+    let number = (rawNumber as string).trim();
     
-    if (!number || number.length !== 2 || isNaN(Number(number)) || isNaN(amount) || amount < 100) {
-        return c.json({ success: false, message: "Invalid number or amount (Min 100 Ks)." }, 400);
+    if (isNaN(amount) || amount < 100) {
+        return c.json({ success: false, message: "Invalid amount (Min 100 Ks)." }, 400);
     }
     if (user.balance < amount) {
         return c.json({ success: false, message: "Insufficient Balance." }, 400);
@@ -547,31 +612,63 @@ app.post("/api/2d/bet", async (c) => {
     else return c.json({ success: false, message: "Market Closed for the day." }, 400);
     
     const today = dateObj.toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
+    
+    // --- Bet Type Logic ---
+    let numbersToBet: string[] = [];
+    let isSingleBet = false;
+    
+    if (betType === 'double') {
+        for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`); 
+    } else if (betType === 'head') {
+        if(!/^\d{1}$/.test(number)) return c.json({ success: false, message: "Invalid input for Head (0-9)." }, 400);
+        for(let i=0; i<10; i++) numbersToBet.push(`${number}${i}`); 
+    } else if (betType === 'tail') {
+        if(!/^\d{1}$/.test(number)) return c.json({ success: false, message: "Invalid input for Tail (0-9)." }, 400);
+        for(let i=0; i<10; i++) numbersToBet.push(`${i}${number}`);
+    } else if (betType === 'r') {
+        if(!/^\d{2}$/.test(number)) return c.json({ success: false, message: "Invalid input for R (00-99)." }, 400);
+        numbersToBet.push(number);
+        const rev = number.split('').reverse().join('');
+        if (rev !== number) numbersToBet.push(rev);
+    } else if (betType === 'direct') {
+        if(!/^\d{2}$/.test(number)) return c.json({ success: false, message: "Invalid input for Direct (00-99)." }, 400);
+        numbersToBet.push(number);
+    } else {
+        return c.json({ success: false, message: "Unknown bet type." }, 400);
+    }
 
-    // 1. Atomic Deduction
+    const totalCost = numbersToBet.length * amount;
+    if (user.balance < totalCost) {
+        return c.json({ success: false, message: `Insufficient Balance. Total cost: ${totalCost.toLocaleString()} Ks` }, 400);
+    }
+
+    // 1. Atomic Deduction for total cost
     const res = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { 
         ...user, 
-        balance: user.balance - amount 
+        balance: user.balance - totalCost 
     }).commit();
 
     if (!res.ok) {
          return c.json({ success: false, message: "Transaction conflict. Try again." }, 500);
     }
+    
+    // 2. Save all expanded bets
+    for(const num of numbersToBet) {
+        const bet: TwoDBet = {
+            id: crypto.randomUUID(), 
+            username: user.username, 
+            number: num, 
+            amount, 
+            date: today, 
+            session, 
+            status: "pending", 
+            timestamp: Date.now()
+        };
+        // Save each bet separately
+        await kv.set(["2d_bets", today, user.username, bet.id], bet);
+    }
 
-    // 2. Save Bet
-    const bet: TwoDBet = {
-        id: crypto.randomUUID(), 
-        username: user.username, 
-        number, 
-        amount, 
-        date: today, 
-        session, 
-        status: "pending", 
-        timestamp: Date.now()
-    };
-    await kv.set(["2d_bets", today, user.username, bet.id], bet);
-
-    return c.json({ success: true, message: `Successfully placed ${number} for ${amount} Ks.` });
+    return c.json({ success: true, message: `Successfully placed ${numbersToBet.length} bets totaling ${totalCost.toLocaleString()} Ks.` });
 });
 
 
@@ -579,7 +676,6 @@ app.post("/api/2d/bet", async (c) => {
 app.get("/history", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
-    // This is a simple placeholder. You can expand this route later.
     return c.redirect("/2d");
 });
 
@@ -601,7 +697,6 @@ app.get("/profile", async (c) => {
 // --- Error Handling ---
 app.onError((err, c) => {
     console.error("GLOBAL ERROR CATCH:", err);
-    // Force redirect to prevent infinite loop/crash on UI pages
     return c.text(`Internal Server Error: ${err.message}`, 500);
 });
 
